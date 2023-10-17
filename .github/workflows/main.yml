@@ -1,4 +1,4 @@
-name: Build 
+name: Build
 
 on:
   push:
@@ -33,45 +33,45 @@ jobs:
           RELEASE_VERSION=$DIST_VERSION-$CODE_NAME
           echo "::set-output name=version::$RELEASE_VERSION"
           echo "::set-output name=sversion::$SHORT_VERSION"
-      - name: Build Ballerina Distribution
-        if: ${{ github.event.inputs.skipTests == '' || github.event.inputs.skipTests == 'false' }}
-        env:
-          packageUser: ${{ github.actor }}
-          packagePAT: ${{ secrets.GITHUB_TOKEN }}
-          devCentralToken: ${{ secrets.BALLERINA_DEV_CENTRAL_ACCESS_TOKEN }}
-          githubAccessToken: ${{ secrets.GITHUB_TOKEN }}
-          ballerinaBotWorkflow: $ {{ secrets.BALLERINA_BOT_WORKFLOW }}
-        run: ./gradlew clean build --stacktrace --scan --console=plain --no-daemon --continue -x project-api-tests:test
-      - name: Build Ballerina Distribution Skip Tests
-        if: ${{ github.event.inputs.skipTests == 'true' }}
-        env:
-          packageUser: ${{ github.actor }}
-          packagePAT: ${{ secrets.GITHUB_TOKEN }}
-          devCentralToken: ${{ secrets.BALLERINA_DEV_CENTRAL_ACCESS_TOKEN }}
-          githubAccessToken: ${{ secrets.GITHUB_TOKEN }}
-        run: ./gradlew clean build --stacktrace --scan --console=plain --no-daemon --continue -x test
-      - name: Archive Ballerina ZIP
-        uses: actions/upload-artifact@v2
-        with:
-          name: Ballerina ZIP
-          path: ballerina/build/distributions/ballerina-*-swan-lake.zip
-      - name: Archive Ballerina Short Name ZIP
-        uses: actions/upload-artifact@v2
-        with:
-          name: Ballerina Short Name ZIP
-          path: ballerina/build/distributions/ballerina-${{ steps.project-version.outputs.sversion }}.zip
-      - name: Archive Linux installer ZIP
-        uses: actions/upload-artifact@v2
-        with:
-          name: Linux installer ZIP
-          path: ballerina/build/distributions/ballerina-*-linux.zip
-      - name: Archive MacOS installer ZIP
-        uses: actions/upload-artifact@v2
-        with:
-          name: MacOS installer ZIP
-          path: ballerina/build/distributions/ballerina-*-macos.zip
-      - name: Archive Windows Installer ZIP
-        uses: actions/upload-artifact@v2
-        with:
-          name: Windows Installer ZIP
-          path: ballerina/build/distributions/ballerina-*-windows.zip
+#      - name: Build Ballerina Distribution
+#        if: ${{ github.event.inputs.skipTests == '' || github.event.inputs.skipTests == 'false' }}
+#        env:
+#          packageUser: ${{ github.actor }}
+#          packagePAT: ${{ secrets.GITHUB_TOKEN }}
+#          devCentralToken: ${{ secrets.BALLERINA_DEV_CENTRAL_ACCESS_TOKEN }}
+#          githubAccessToken: ${{ secrets.GITHUB_TOKEN }}
+#          ballerinaBotWorkflow: $ {{ secrets.BALLERINA_BOT_WORKFLOW }}
+#        run: ./gradlew clean build --stacktrace --scan --console=plain --no-daemon --continue -x project-api-tests:test
+#      - name: Build Ballerina Distribution Skip Tests
+#        if: ${{ github.event.inputs.skipTests == 'true' }}
+#        env:
+#          packageUser: ${{ github.actor }}
+#          packagePAT: ${{ secrets.GITHUB_TOKEN }}
+#          devCentralToken: ${{ secrets.BALLERINA_DEV_CENTRAL_ACCESS_TOKEN }}
+#          githubAccessToken: ${{ secrets.GITHUB_TOKEN }}
+#        run: ./gradlew clean build --stacktrace --scan --console=plain --no-daemon --continue -x test
+#      - name: Archive Ballerina ZIP
+#        uses: actions/upload-artifact@v2
+#        with:
+#          name: Ballerina ZIP
+#          path: ballerina/build/distributions/ballerina-*-swan-lake.zip
+#      - name: Archive Ballerina Short Name ZIP
+#        uses: actions/upload-artifact@v2
+#        with:
+#          name: Ballerina Short Name ZIP
+#          path: ballerina/build/distributions/ballerina-${{ steps.project-version.outputs.sversion }}.zip
+#      - name: Archive Linux installer ZIP
+#        uses: actions/upload-artifact@v2
+#        with:
+#          name: Linux installer ZIP
+#          path: ballerina/build/distributions/ballerina-*-linux.zip
+#      - name: Archive MacOS installer ZIP
+#        uses: actions/upload-artifact@v2
+#        with:
+#          name: MacOS installer ZIP
+#          path: ballerina/build/distributions/ballerina-*-macos.zip
+#      - name: Archive Windows Installer ZIP
+#        uses: actions/upload-artifact@v2
+#        with:
+#          name: Windows Installer ZIP
+#          path: ballerina/build/distributions/ballerina-*-windows.zip

@@ -47,7 +47,7 @@ public class MavenCustomRepoTestUtils {
     static void createSettingToml(Path dirPath) throws IOException {
         String content = "[[repository.maven]]\n " +
                 "id = \"github1\"\n " +
-                "url = \"https://maven.pkg.github.com/ballerina-platform/ballerina-release\"\n " +
+                "url = \"https://maven.pkg.github.com/Thevakumar-luheerathan/ballerina-release\"\n " +
                 "username = \"ballerina-platform\"\n " +
                 "accesstoken = \"" + getGithubToken() + "\"\n";
         Files.write(dirPath.resolve("Settings.toml"), content.getBytes(), StandardOpenOption.CREATE,
@@ -116,7 +116,7 @@ public class MavenCustomRepoTestUtils {
     static void deleteArtifacts(String org, String packagename) throws IOException {
         OkHttpClient client = new OkHttpClient();
         Request request = new Request.Builder()
-                .url("https://api.github.com/orgs/ballerina-platform/packages/maven/" + org + "." + packagename)
+                .url("https://api.github.com/orgs/Thevakumar-Luheerathan/packages/maven/" + org + "." + packagename)
                 .header("Accept", "application/vnd.github+json")
                 .header("Authorization", "Bearer " + getGithubToken())
                 .header("X-GitHub-Api-Version", "2022-11-28")
