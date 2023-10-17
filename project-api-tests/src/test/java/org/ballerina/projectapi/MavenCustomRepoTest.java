@@ -66,6 +66,7 @@ public class MavenCustomRepoTest {
 
     @BeforeClass()
     public void setUp() throws IOException {
+        deleteArtifacts(org, packagename);
         TestUtils.setupDistributions();
         actualHomeDirectory = Paths.get(System.getProperty("user.home")).resolve(".ballerina");
         actualHomeDirectoryClone = Files.createTempDirectory("bal-test-integration-packaging-home-")
