@@ -172,6 +172,13 @@ def main():
 
     ensure_label_exists(args.tracking_repo)
 
+    # Every finding must end up with an explicit `issue` key, even null - a consumer with a
+    # strict schema (verified: the Ballerina dashboard) treats a MISSING key differently from a
+    # present-but-null one, and unresolved-repo findings previously never got the key touched at
+    # all since the loop below only visits findings with a resolved repo.
+    for finding in combined["findings"]:
+        finding.setdefault("issue", None)
+
     by_repo = defaultdict(list)
     for finding in combined["findings"]:
         if finding.get("repo"):
