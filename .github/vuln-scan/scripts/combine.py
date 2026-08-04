@@ -39,8 +39,12 @@ def load_exceptions():
 _repo_exists_cache = {}
 
 
+_repo_exists_errors_logged = 0
+
+
 def repo_exists(full_name):
     """Verify a guessed repo actually exists (and get gh to follow any rename redirect)."""
+    global _repo_exists_errors_logged
     if full_name in _repo_exists_cache:
         return _repo_exists_cache[full_name]
     proc = subprocess.run(
@@ -48,6 +52,13 @@ def repo_exists(full_name):
         capture_output=True, text=True, timeout=20,
     )
     result = proc.stdout.strip() if proc.returncode == 0 else None
+    if result is None and _repo_exists_errors_logged < 5:
+        # Cap the noise, but never swallow this silently - a widespread failure here (e.g. gh
+        # CLI not authenticated in this job step) previously showed up only as "198 packages
+        # could not be resolved", with zero clue why. Print the first few real errors so the
+        # actual cause (auth, rate limit, or a genuine 404) is visible in the workflow log.
+        print(f"WARNING: gh api repos/{full_name} failed: {proc.stderr.strip()}", file=sys.stderr)
+        _repo_exists_errors_logged += 1
     _repo_exists_cache[full_name] = result
     return result
 

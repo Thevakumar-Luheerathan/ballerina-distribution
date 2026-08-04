@@ -220,6 +220,14 @@ jobs:
           path: artifacts/central
 
       - name: Combine per-line reports into combined.json
+        env:
+          # combine.py's repo_exists() shells out to `gh api repos/{owner}/{repo}` to verify
+          # guessed repo names (read-only, public repos in ballerina-platform). The gh CLI
+          # requires GH_TOKEN/GITHUB_TOKEN explicitly set in Actions - it has no ambient login
+          # the way a local `gh auth login` session does. Without this, every repo_exists()
+          # call fails and every central-source finding falls through as unresolved (verified:
+          # this happened on the pipeline's first real run - 713 of 738 findings unresolved).
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           LINES=$(echo '${{ needs.generate-matrix.outputs.lines }}' | jq -r '.[]')
