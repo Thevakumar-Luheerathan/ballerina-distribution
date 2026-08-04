@@ -98,7 +98,7 @@ def render_body(repo_name, findings):
     ]
     for f in sorted(findings, key=lambda f: (f["ballerina_version"], f["source"], f["cve"] or "")):
         pkg = f"{f['package_org']}/{f['package_name']}@{f['package_version']}" if f["package_org"] else "-"
-        also = f["_also_seen_in_jars"] if f.get("_also_seen_in_jars") else []
+        also = f["also_seen_in_jars"] if f.get("also_seen_in_jars") else []
         jar = f["jar"] + (f" (+{len(also)} more)" if also else "")
         fixed = f["fixed_version"] or "_no fix available yet_"
         lines.append(

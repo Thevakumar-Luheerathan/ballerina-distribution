@@ -132,12 +132,12 @@ def dedupe_within_source(raw_findings, dedupe_key_fn):
         key = dedupe_key_fn(finding)
         if key not in by_key:
             by_key[key] = finding
-            finding["_also_seen_in_jars"] = []
+            finding["also_seen_in_jars"] = []
             order.append(key)
         else:
             existing = by_key[key]
             if finding["jar"] != existing["jar"]:
-                existing["_also_seen_in_jars"].append(finding["jar"])
+                existing["also_seen_in_jars"].append(finding["jar"])
     return [by_key[k] for k in order]
 
 
@@ -190,6 +190,20 @@ def process_central_dir(line, central_dir, findings_out, exceptions, unresolved)
             })
         deduped = dedupe_within_source(raw, lambda f: f["cve"])
         findings_out.extend(deduped)
+
+
+def _current_run_url():
+    """
+    The GitHub Actions run URL for this pipeline execution, built from the standard env vars
+    every Actions job gets automatically. None when run outside Actions (e.g. local testing) -
+    the field is genuinely optional in that case, not a bug to work around.
+    """
+    server = os.environ.get("GITHUB_SERVER_URL")
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    run_id = os.environ.get("GITHUB_RUN_ID")
+    if server and repo and run_id:
+        return f"{server}/{repo}/actions/runs/{run_id}"
+    return None
 
 
 def parse_kv_args(items):
@@ -263,6 +277,7 @@ def main():
 
     combined = {
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "pipeline_run_url": _current_run_url(),
         "versions": versions,
         "scan_status": scan_status,
         "findings": findings,
