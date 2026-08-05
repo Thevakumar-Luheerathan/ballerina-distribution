@@ -1,0 +1,7 @@
+[package]
+org = "ballerina_vuln_scan"
+name = "dashboard"
+version = "0.1.0"
+
+[build-options]
+observabilityIncluded = true
