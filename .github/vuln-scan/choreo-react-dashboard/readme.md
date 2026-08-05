@@ -27,11 +27,20 @@ dev-server-only, not present in the production build). Choreo's React buildpack 
 | Build output directory | `dist` |
 | Node Version | `20` |
 
-- Set a **build-time** environment variable on the component:
-  - `VITE_API_BASE_URL` - the deployed URL of the `choreo-dashboard` Service component (see
-    `../choreo-dashboard/readme.md` if present, or its Choreo component's exposed URL).
-    Vite only inlines `VITE_`-prefixed variables, and only at build time - this cannot be
-    changed at runtime without rebuilding.
+- Add a **File Mount** on the component (Deploy page, per environment), at the path where the
+  built `index.html` expects to find it - i.e. alongside `index.html` in the build output
+  (`dist/config.js`). Content:
+  ```js
+  window.config = {
+    apiUrl: "https://<the deployed choreo-dashboard service URL>",
+  };
+  ```
+  This isn't a build-time env var - Choreo doesn't support baking in env vars for SPAs, since the
+  same built artifact is meant to be promoted dev -> staging -> prod. `public/config.js` (copied
+  verbatim into the build output by Vite) ships a localhost placeholder; the File Mount overwrites
+  it per environment at deploy time, without a rebuild. See `public/config.js` and `index.html`
+  for how it's wired in, and note it's visible to anyone opening browser devtools - fine for a
+  base URL, not for secrets.
 - On the `choreo-dashboard` Service component, set its `allowOrigins` configurable (in
   `Config.toml` or Choreo's environment variable equivalent) to this web app's actual deployed
   origin once known, narrowing it from the permissive `["*"]` default.
@@ -40,8 +49,7 @@ dev-server-only, not present in the production build). Choreo's React buildpack 
 
 ```bash
 npm install
-cp .env.example .env.local   # then edit VITE_API_BASE_URL to point at a running
-                              # choreo-dashboard instance (e.g. http://localhost:9091)
+# edit public/config.js if your local choreo-dashboard isn't on the default localhost:9090
 npm run dev                  # dev server with hot reload
 npm run build                # production build -> dist/
 ```

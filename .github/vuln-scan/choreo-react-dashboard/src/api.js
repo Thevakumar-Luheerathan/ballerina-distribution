@@ -1,18 +1,16 @@
 // Talks to the Ballerina dashboard API (a separate Choreo Service component - see
-// .github/vuln-scan/choreo-dashboard/main.bal's GET /api/summary). The base URL is a build-time
-// env var: Vite only inlines variables prefixed VITE_, and it bakes them in at build time (not
-// runtime) - so this must be set as a build-time environment variable in the Choreo console for
-// the React "Web Application" component, not a runtime config file. There is no Choreo
-// runtime-config-injection convention to fall back on here - the reference sample
-// (wso2/choreo-samples/react-single-page-app) doesn't demonstrate one either (verified: it's a
-// stock, backend-less scaffold with no API calls at all).
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+// .github/vuln-scan/choreo-dashboard/main.bal's GET /api/summary). The base URL comes from
+// window.config (see public/config.js), a plain unbundled file loaded before this module -
+// Choreo Web Application (SPA) components don't support build-time environment variables (the
+// same built artifact is promoted across environments), so the URL is instead injected at deploy
+// time via a Choreo File Mount overwriting that file, per environment.
+const API_BASE_URL = window.config?.apiUrl || "";
 
 export async function fetchSummary() {
   if (!API_BASE_URL) {
     throw new Error(
-      "VITE_API_BASE_URL is not set - this must point at the deployed choreo-dashboard " +
-        "service's URL, configured as a build-time environment variable for this component."
+      "window.config.apiUrl is not set - see public/config.js. In Choreo, this is set via a " +
+        "File Mount pointing at the deployed choreo-dashboard service's URL."
     );
   }
   const response = await fetch(`${API_BASE_URL}/api/summary`);
