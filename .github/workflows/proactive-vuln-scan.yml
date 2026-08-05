@@ -220,14 +220,6 @@ jobs:
           path: artifacts/central
 
       - name: Combine per-line reports into combined.json
-        env:
-          # combine.py's repo_exists() shells out to `gh api repos/{owner}/{repo}` to verify
-          # guessed repo names (read-only, public repos in ballerina-platform). The gh CLI
-          # requires GH_TOKEN/GITHUB_TOKEN explicitly set in Actions - it has no ambient login
-          # the way a local `gh auth login` session does. Without this, every repo_exists()
-          # call fails and every central-source finding falls through as unresolved (verified:
-          # this happened on the pipeline's first real run - 713 of 738 findings unresolved).
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           LINES=$(echo '${{ needs.generate-matrix.outputs.lines }}' | jq -r '.[]')
@@ -247,8 +239,7 @@ jobs:
 
           python3 .github/vuln-scan/scripts/combine.py \
             "${DIST_ARGS[@]}" "${CENTRAL_ARGS[@]}" \
-            --out combined.json \
-            --unresolved-out unresolved.json
+            --out combined.json
 
       - name: Sync findings to tracking issues
         env:
@@ -264,7 +255,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: combined-results
-          path: |
-            combined.json
-            unresolved.json
+          path: combined.json
           retention-days: 90

@@ -13,6 +13,21 @@ Inputs, per configured version line:
                                          that line succeeded. Repeatable; if omitted for a line
                                          that has a --distribution-report, assumed ok.
 
+Package identity is (package_org, package_name) - "ballerina-lang" (package_org=None) for
+distribution-source findings, or the actual Central org/name (e.g. "ballerinax"/"redis") for
+central-source findings. There is deliberately NO repo-resolution step: an earlier version of
+this script guessed a GitHub repo per package (naming convention + a `gh api` existence check +
+a hand-maintained exception file) and still left 36 of 738 real findings unresolved - mostly
+`ballerina/lang.*` submodules, which aren't separate repos at all. Library owners already know
+which repo their package lives in; this pipeline only needs to identify the package itself.
+
+Each finding also carries `library_name` - the raw underlying dependency coordinate trivy
+reports (e.g. "commons-beanutils:commons-beanutils", "io.netty:netty-codec"), independent of
+which Ballerina package wraps it. This is what `package_name` used to hold for distribution
+findings before package_name became the Ballerina-level identity; it's kept because it's the
+only version-independent way to check "is this library used by anything on Central at all",
+which downstream consumers need for the distribution-vs-central pending-fix comparison.
+
 Output: combined.json with top-level generated_at/versions/scan_status/findings, per the
 pipeline contract. Findings are deduped WITHIN a source (a single package or the distribution
 build re-reporting the same CVE against multiple shaded/fat jars collapses to one finding with
@@ -23,79 +38,15 @@ still pending in the distribution" signal, which a cross-source merge would dest
 import argparse
 import json
 import os
-import subprocess
 import sys
 import time
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DISTRIBUTION_REPO = "ballerina-platform/ballerina-lang"
-
-
-def load_exceptions():
-    with open(os.path.join(SCRIPT_DIR, "repo_exceptions.json")) as f:
-        return json.load(f)["exceptions"]
-
-
-_repo_exists_cache = {}
-
-
-_repo_exists_errors_logged = 0
-
-
-def repo_exists(full_name):
-    """Verify a guessed repo actually exists (and get gh to follow any rename redirect)."""
-    global _repo_exists_errors_logged
-    if full_name in _repo_exists_cache:
-        return _repo_exists_cache[full_name]
-    proc = subprocess.run(
-        ["gh", "api", f"repos/{full_name}", "--jq", ".full_name"],
-        capture_output=True, text=True, timeout=20,
-    )
-    result = proc.stdout.strip() if proc.returncode == 0 else None
-    if result is None and _repo_exists_errors_logged < 5:
-        # Cap the noise, but never swallow this silently - a widespread failure here (e.g. gh
-        # CLI not authenticated in this job step) previously showed up only as "198 packages
-        # could not be resolved", with zero clue why. Print the first few real errors so the
-        # actual cause (auth, rate limit, or a genuine 404) is visible in the workflow log.
-        print(f"WARNING: gh api repos/{full_name} failed: {proc.stderr.strip()}", file=sys.stderr)
-        _repo_exists_errors_logged += 1
-    _repo_exists_cache[full_name] = result
-    return result
-
-
-def resolve_repo(org, name, exceptions, unresolved):
-    """
-    Resolution order:
-      1. explicit exception table (compiled from verified naming-convention mismatches)
-      2. module-<org>-<name> convention, verified to actually exist via the GitHub API
-         (this also transparently follows GitHub's rename redirects, e.g. for repos whose
-         own Ballerina.toml has a stale `repository` field - we never trust that field
-         directly, since it's self-reported and was found stale in 2 of 63 sampled repos)
-    If neither resolves, the package is recorded in `unresolved` and the finding gets
-    repo=None - it still appears in combined.json (never silently dropped) but can't be
-    issue-synced until someone extends the exception table.
-    """
-    key = f"{org}/{name}"
-    if key in exceptions:
-        guess = exceptions[key]
-        full = f"ballerina-platform/{guess}"
-        resolved = repo_exists(full)
-        if resolved:
-            return resolved
-    guess = f"module-{org}-{name}" if org != "ballerina" else f"module-ballerina-{name}"
-    full = f"ballerina-platform/{guess}"
-    resolved = repo_exists(full)
-    if resolved:
-        return resolved
-
-    unresolved.setdefault(key, 0)
-    unresolved[key] += 1
-    return None
+DISTRIBUTION_PACKAGE_NAME = "ballerina-lang"
 
 
 def parse_trivy_report(path):
     """
-    Yields (jar_path, cve, severity, pkg_name, installed_version, fixed_version).
+    Yields (jar_path, cve, severity, trivy_pkg_name, installed_version, fixed_version).
 
     Verified against real trivy 0.64.1 `rootfs` JSON output: when a rootfs scan finds multiple
     jars, `Results[].Target` is an aggregate label like "Java" or "Node.js" - NOT a jar path.
@@ -143,26 +94,26 @@ def dedupe_within_source(raw_findings, dedupe_key_fn):
 
 def process_distribution_report(line, report_path, findings_out):
     raw = []
-    for target, cve, severity, pkg_name, installed, fixed in parse_trivy_report(report_path):
+    for target, cve, severity, trivy_pkg_name, installed, fixed in parse_trivy_report(report_path):
         jar = os.path.basename(target)
         raw.append({
             "ballerina_version": line,
             "source": "distribution",
             "package_org": None,
-            "package_name": pkg_name,
+            "package_name": DISTRIBUTION_PACKAGE_NAME,
             "package_version": None,
-            "repo": DISTRIBUTION_REPO,
+            "library_name": trivy_pkg_name,
             "jar": jar,
             "cve": cve,
             "severity": severity,
             "installed_version": installed,
             "fixed_version": fixed,
         })
-    deduped = dedupe_within_source(raw, lambda f: (f["cve"], f["package_name"], f["installed_version"]))
+    deduped = dedupe_within_source(raw, lambda f: (f["cve"], f["library_name"], f["installed_version"]))
     findings_out.extend(deduped)
 
 
-def process_central_dir(line, central_dir, findings_out, exceptions, unresolved):
+def process_central_dir(line, central_dir, findings_out):
     manifest_path = os.path.join(central_dir, "manifest.json")
     with open(manifest_path) as f:
         manifest = json.load(f)
@@ -171,9 +122,8 @@ def process_central_dir(line, central_dir, findings_out, exceptions, unresolved)
         report_path = os.path.join(central_dir, pkg["report"])
         if not os.path.exists(report_path):
             continue
-        repo = resolve_repo(pkg["org"], pkg["name"], exceptions, unresolved)
         raw = []
-        for target, cve, severity, pkg_name, installed, fixed in parse_trivy_report(report_path):
+        for target, cve, severity, trivy_pkg_name, installed, fixed in parse_trivy_report(report_path):
             jar = os.path.basename(target)
             raw.append({
                 "ballerina_version": line,
@@ -181,7 +131,7 @@ def process_central_dir(line, central_dir, findings_out, exceptions, unresolved)
                 "package_org": pkg["org"],
                 "package_name": pkg["name"],
                 "package_version": pkg["version"],
-                "repo": repo,
+                "library_name": trivy_pkg_name,
                 "jar": jar,
                 "cve": cve,
                 "severity": severity,
@@ -222,7 +172,6 @@ def main():
     ap.add_argument("--distribution-status", action="append", default=[])
     ap.add_argument("--central-status", action="append", default=[])
     ap.add_argument("--out", required=True)
-    ap.add_argument("--unresolved-out", default=None)
     args = ap.parse_args()
 
     dist_reports = parse_kv_args(args.distribution_report)
@@ -230,8 +179,6 @@ def main():
     dist_status = parse_kv_args(args.distribution_status)
     central_status = parse_kv_args(args.central_status)
 
-    exceptions = load_exceptions()
-    unresolved = {}
     findings = []
     scan_status = []
     versions = sorted(set(list(dist_reports) + list(central_dirs)))
@@ -258,7 +205,7 @@ def main():
 
         if line in central_dirs:
             try:
-                process_central_dir(line, central_dirs[line], findings, exceptions, unresolved)
+                process_central_dir(line, central_dirs[line], findings)
                 ok = central_status.get(line, "ok") == "ok"
                 scan_status.append({
                     "ballerina_version": line, "source": "central",
@@ -290,13 +237,6 @@ def main():
         f"Wrote {len(findings)} findings across {len(versions)} version line(s) to {args.out}",
         file=sys.stderr,
     )
-    if unresolved:
-        print(f"WARNING: {len(unresolved)} package(s) could not be resolved to a repo:", file=sys.stderr)
-        for key, count in unresolved.items():
-            print(f"  {key} ({count} finding(s))", file=sys.stderr)
-    if args.unresolved_out:
-        with open(args.unresolved_out, "w") as f:
-            json.dump(unresolved, f, indent=2)
 
 
 if __name__ == "__main__":
