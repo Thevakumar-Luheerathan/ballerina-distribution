@@ -6,7 +6,8 @@
     { "ballerina_version": "2201.13.x", "source": "distribution", "ok": true, "error": null },
     { "ballerina_version": "2201.13.x", "source": "central", "ok": true, "error": null },
     { "ballerina_version": "2201.12.x", "source": "distribution", "ok": true, "error": null },
-    { "ballerina_version": "2201.12.x", "source": "central", "ok": false, "error": "resolve_package_for_line timed out for 4 packages after retries - see resolve-failures.json" }
+    { "ballerina_version": "2201.12.x", "source": "central", "ok": false, "error": "resolve_package_for_line timed out for 4 packages after retries - see resolve-failures.json" },
+    { "ballerina_version": null, "plugin_branch": "main", "source": "vscode-extension", "ok": true, "error": null }
   ],
   "findings": [
     {
@@ -128,6 +129,38 @@
       "fixed_version": "4.9.7",
       "also_seen_in_jars": [],
       "issue": null
+    },
+    {
+      "ballerina_version": null,
+      "source": "vscode-extension",
+      "package_org": null,
+      "package_name": "ballerina-vscode",
+      "package_version": null,
+      "plugin_branch": "main",
+      "library_name": "axios",
+      "jar": "axios",
+      "cve": "CVE-2024-11111",
+      "severity": "HIGH",
+      "installed_version": "1.7.2",
+      "fixed_version": "1.7.4",
+      "also_seen_in_jars": [],
+      "issue": { "number": 4, "url": "https://github.com/Thevakumar-Luheerathan/integration-engineering/issues/4", "state": "open" }
+    },
+    {
+      "ballerina_version": null,
+      "source": "vscode-extension",
+      "package_org": null,
+      "package_name": "ballerina-vscode",
+      "package_version": null,
+      "plugin_branch": "main",
+      "library_name": "com.fasterxml.jackson.core:jackson-databind",
+      "jar": "com.fasterxml.jackson.core:jackson-databind",
+      "cve": "CVE-2023-22222",
+      "severity": "CRITICAL",
+      "installed_version": "2.15.0",
+      "fixed_version": "2.15.2",
+      "also_seen_in_jars": [],
+      "issue": { "number": 4, "url": "https://github.com/Thevakumar-Luheerathan/integration-engineering/issues/4", "state": "open" }
     }
   ]
 }

@@ -36,6 +36,8 @@ service / on new http:Listener(port) {
     // The dashboard UI itself is the separate React app (a Choreo Web Application component) -
     // this service is a pure JSON API. byPackage groups findings into the package -> version ->
     // CVE hierarchy (see aggregate.bal:summarizeByPackage) that the React PackageTable renders.
+    // byPlugin is the structurally-identical view for non-Ballerina-versioned sources (currently
+    // just the ballerina-vscode extension, grouped by scanned branch instead of package version).
     resource function get api/summary() returns json|http:Response {
         CachedSnapshot|error snapshot = getSnapshotOrRefresh();
         if snapshot is error {
@@ -56,6 +58,7 @@ service / on new http:Listener(port) {
             stale,
             byVersionAndSource: summarizeByVersionAndSource(snapshot.report).toJson(),
             byPackage: summarizeByPackage(snapshot.report).toJson(),
+            byPlugin: summarizeByPlugin(snapshot.report).toJson(),
             findings: snapshot.report.findings.toJson()
         };
     }

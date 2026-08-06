@@ -12,6 +12,14 @@ Inputs, per configured version line:
   --distribution-status <line>=ok|<error message>   whether the distribution build/scan for
                                          that line succeeded. Repeatable; if omitted for a line
                                          that has a --distribution-report, assumed ok.
+  --vscode-report <branch>=<path>       a trivy JSON report from scanning ballerina-vscode at a
+                                         configured branch (source "vscode-extension"). A branch
+                                         can appear more than once (the fs scan and the language
+                                         server's sbom scan both feed the same branch) - all
+                                         reports for a branch are combined. Repeatable.
+  --vscode-status <branch>=ok|<error message>   whether ballerina-vscode's scan for that branch
+                                         succeeded. Repeatable; if omitted for a branch that has
+                                         a --vscode-report, assumed ok.
 
 Package identity is (package_org, package_name) - "ballerina-lang" (package_org=None) for
 distribution-source findings, or the actual Central org/name (e.g. "ballerinax"/"redis") for
@@ -113,6 +121,38 @@ def process_distribution_report(line, report_path, findings_out):
     findings_out.extend(deduped)
 
 
+def process_vscode_report(branch, report_paths, findings_out):
+    """
+    ballerina-vscode findings have NO Ballerina version at all - they're scanned by branch
+    (configurable via .github/vuln-scan/vscode-targets.json), independent of the 2201.x lines.
+    Two real upstream Trivy scans feed into this same source ("vscode-extension"), mirroring
+    ballerina-vscode's OWN pipeline exactly rather than inventing a new one: an `fs` scan of the
+    whole checked-out repo (catches the extension's npm/pnpm dependencies, same flags upstream's
+    reusable-build.yml uses) and an `sbom` scan of the bundled Java language server (same as
+    upstream's schedule.yml `ls-trivy` job, via a CycloneDX SBOM). Both report shapes are the
+    same trivy JSON, so this just reads both paths the same way and dedupes across them.
+    """
+    raw = []
+    for report_path in report_paths:
+        for target, cve, severity, trivy_pkg_name, installed, fixed in parse_trivy_report(report_path):
+            raw.append({
+                "ballerina_version": None,
+                "source": "vscode-extension",
+                "package_org": None,
+                "package_name": "ballerina-vscode",
+                "package_version": None,
+                "plugin_branch": branch,
+                "library_name": trivy_pkg_name,
+                "jar": trivy_pkg_name,
+                "cve": cve,
+                "severity": severity,
+                "installed_version": installed,
+                "fixed_version": fixed,
+            })
+    deduped = dedupe_within_source(raw, lambda f: (f["cve"], f["library_name"], f["installed_version"]))
+    findings_out.extend(deduped)
+
+
 def process_central_dir(line, central_dir, findings_out):
     manifest_path = os.path.join(central_dir, "manifest.json")
     with open(manifest_path) as f:
@@ -165,12 +205,23 @@ def parse_kv_args(items):
     return out
 
 
+def parse_kv_list_args(items):
+    """'main=/path/a.json' repeated -> {'main': ['/path/a.json', '/path/b.json']}"""
+    out = {}
+    for item in items or []:
+        key, _, value = item.partition("=")
+        out.setdefault(key, []).append(value)
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--distribution-report", action="append", default=[])
     ap.add_argument("--central-dir", action="append", default=[])
     ap.add_argument("--distribution-status", action="append", default=[])
     ap.add_argument("--central-status", action="append", default=[])
+    ap.add_argument("--vscode-report", action="append", default=[])
+    ap.add_argument("--vscode-status", action="append", default=[])
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
@@ -178,6 +229,8 @@ def main():
     central_dirs = parse_kv_args(args.central_dir)
     dist_status = parse_kv_args(args.distribution_status)
     central_status = parse_kv_args(args.central_status)
+    vscode_reports = parse_kv_list_args(args.vscode_report)
+    vscode_status = parse_kv_args(args.vscode_status)
 
     findings = []
     scan_status = []
@@ -220,6 +273,22 @@ def main():
             scan_status.append({
                 "ballerina_version": line, "source": "central",
                 "ok": False, "error": "no report produced",
+            })
+
+    # ballerina-vscode is scanned by branch, independent of the Ballerina version lines above -
+    # not added to `versions` (that field is specifically Ballerina release lines).
+    for branch in sorted(vscode_reports):
+        try:
+            process_vscode_report(branch, vscode_reports[branch], findings)
+            ok = vscode_status.get(branch, "ok") == "ok"
+            scan_status.append({
+                "ballerina_version": None, "plugin_branch": branch, "source": "vscode-extension",
+                "ok": ok, "error": None if ok else vscode_status.get(branch),
+            })
+        except Exception as e:  # noqa: BLE001
+            scan_status.append({
+                "ballerina_version": None, "plugin_branch": branch, "source": "vscode-extension",
+                "ok": False, "error": str(e),
             })
 
     combined = {

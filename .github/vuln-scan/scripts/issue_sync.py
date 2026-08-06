@@ -74,8 +74,8 @@ def display_name(package_org, package_name):
     no exceptions file. A human reading the title will recognize their own package regardless of
     an occasional naming-convention mismatch; nothing routes or links on this string.
     """
-    if package_name == "ballerina-lang":
-        return "ballerina-lang"
+    if package_name in ("ballerina-lang", "ballerina-vscode"):
+        return package_name
     return f"module-{package_org}-{package_name}"
 
 
@@ -121,6 +121,12 @@ def version_groups(package_name, findings):
             groups[f["ballerina_version"]].append(f)
         return sorted(groups.items())
 
+    if package_name == "ballerina-vscode":
+        # No Ballerina version concept at all - grouped by the scanned branch instead.
+        for f in findings:
+            groups[f["plugin_branch"]].append(f)
+        return sorted(groups.items())
+
     # Central package: group by distinct package_version, label with every Ballerina line that
     # version was resolved for (a version can legitimately serve >1 line - Central always
     # returns the single latest version, which often satisfies more than one line's floor check).
@@ -146,8 +152,8 @@ def render_finding_row(f):
 def render_body(package_org, package_name, findings, suppressed_count):
     name = display_name(package_org, package_name)
     lines = [
-        f"Automatically tracked vulnerabilities for `{name}`, across all scanned Ballerina "
-        f"version lines. This issue's body is fully rewritten on every pipeline run to reflect "
+        f"Automatically tracked vulnerabilities for `{name}`, across all scanned versions/"
+        f"branches. This issue's body is fully rewritten on every pipeline run to reflect "
         f"current ACTIVE findings - manual edits here will be overwritten.",
         "",
         "Closing this issue is a judgment call for a human to make (already fixed upstream but "

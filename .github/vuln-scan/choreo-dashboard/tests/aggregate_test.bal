@@ -148,3 +148,44 @@ function testSummarizeByPackageNeverProducesAnUnresolvedBucket() returns error? 
     test:assertTrue((<PackageSummary>rocketmq).issue is (), msg = "rocketmq driver has no issue synced yet in the fixture - should show as absent, not crash");
 }
 
+@test:Config {}
+function testSummarizeByPackageExcludesVscodeExtension() returns error? {
+    CombinedReport report = check loadFixture();
+    PackageSummary[] packages = summarizeByPackage(report);
+
+    // The fixture's 2 vscode-extension findings must never appear in the Packages view - they
+    // belong exclusively to summarizeByPlugin (see below). Package count stays at 4 regardless
+    // of the vscode-extension findings added to the fixture.
+    test:assertEquals(packages.length(), 4);
+    PackageSummary? vscode = findPackage(packages, (), "ballerina-vscode");
+    test:assertTrue(vscode is (), msg = "ballerina-vscode must not appear in the Packages view");
+}
+
+@test:Config {}
+function testSummarizeByPluginGroupsByBranchNotVersion() returns error? {
+    CombinedReport report = check loadFixture();
+    PackageSummary[] plugins = summarizeByPlugin(report);
+
+    // Exactly one plugin (ballerina-vscode), never mixed into the Packages count.
+    test:assertEquals(plugins.length(), 1);
+    PackageSummary vscode = plugins[0];
+    test:assertEquals(vscode.package_org, ());
+    test:assertEquals(vscode.package_name, "ballerina-vscode");
+
+    // Both fixture findings (one npm CVE from the fs scan, one Maven CVE from the LS sbom scan)
+    // are scanned from the same branch ("main"), so they collapse into ONE VersionGroup - never
+    // split by which of the two real upstream scans produced them.
+    test:assertEquals(vscode.versions.length(), 1, msg = "both findings are on branch 'main' - expected exactly one VersionGroup");
+    VersionGroup mainGroup = vscode.versions[0];
+    test:assertEquals(mainGroup.label, "main");
+    test:assertEquals(mainGroup.ballerina_versions, [], msg = "ballerina-vscode has no Ballerina version concept");
+    test:assertEquals(mainGroup.findings.length(), 2, msg = "expected both the npm (axios) and Maven (jackson-databind) CVEs under branch main");
+
+    // Package-level counts aggregate across the (here, single) branch: 1 HIGH + 1 CRITICAL.
+    test:assertEquals(vscode.counts.high, 1);
+    test:assertEquals(vscode.counts.critical, 1);
+
+    // The issue synced for this package is visible exactly like a real package's.
+    test:assertTrue(vscode.issue is IssueRef, msg = "expected the fixture's synced issue to surface");
+}
+

@@ -101,6 +101,7 @@ function App() {
 
           <ScanLanes byVersionAndSource={data.byVersionAndSource} />
           <PackageTable byPackage={data.byPackage} />
+          <PackageTable byPackage={data.byPlugin} heading="Plugins" />
         </>
       )}
     </div>

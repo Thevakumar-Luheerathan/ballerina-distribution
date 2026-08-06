@@ -11,7 +11,16 @@ name: Proactive Vulnerability Scan
 # affected repo (no database - GitHub Issues are the state store) and the combined result is
 # published as a workflow artifact for the Choreo dashboard/alerting service to consume.
 #
-# To add a new version line: edit .github/vuln-scan/versions.json. No workflow changes needed.
+# Also scans ballerina-platform/ballerina-vscode (source "vscode-extension"), independent of the
+# Ballerina version lines above - it's scanned by branch instead (mostly 'main'). Adopts the
+# SAME two Trivy scans that repo's own pipeline runs, rather than a newly-invented one: an `fs`
+# scan of the whole checked-out repo (mirrors its reusable-build.yml, catches the extension's
+# npm/pnpm dependencies) and an `sbom` scan of the bundled Java language server (mirrors its
+# schedule.yml `ls-trivy` job). See combine.py's process_vscode_report for why the packaged
+# .vsix itself isn't what's scanned.
+#
+# To add a new version line: edit .github/vuln-scan/versions.json. To add/change a
+# ballerina-vscode branch: edit .github/vuln-scan/vscode-targets.json. No workflow changes needed.
 #
 # NOTE (temporary, per user decision): issues are filed into
 # Thevakumar-Luheerathan/integration-engineering (a personal fork) rather than the upstream
@@ -36,6 +45,8 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       lines: ${{ steps.set-matrix.outputs.lines }}
+      vscode_matrix: ${{ steps.set-vscode-matrix.outputs.vscode_matrix }}
+      vscode_branches: ${{ steps.set-vscode-matrix.outputs.vscode_branches }}
     steps:
       - uses: actions/checkout@v4
       - id: set-matrix
@@ -45,6 +56,13 @@ jobs:
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "lines=$LINES" >> "$GITHUB_OUTPUT"
           echo "Active version lines: $LINES"
+      - id: set-vscode-matrix
+        run: |
+          VMATRIX=$(jq -c '[.targets[] | select(.active)]' .github/vuln-scan/vscode-targets.json)
+          VBRANCHES=$(echo "$VMATRIX" | jq -c '[.[].branch]')
+          echo "vscode_matrix=$VMATRIX" >> "$GITHUB_OUTPUT"
+          echo "vscode_branches=$VBRANCHES" >> "$GITHUB_OUTPUT"
+          echo "Active ballerina-vscode branches: $VBRANCHES"
 
   warm-trivy-db:
     name: Pre-download Trivy vulnerability DBs
@@ -196,9 +214,151 @@ jobs:
           path: central-reports/
           retention-days: 14
 
+  vscode-fs-scan:
+    name: Scan ballerina-vscode (fs, ${{ matrix.branch }})
+    needs: [generate-matrix, warm-trivy-db]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.generate-matrix.outputs.vscode_matrix) }}
+    steps:
+      # Mirrors ballerina-platform/ballerina-vscode's OWN reusable-build.yml Trivy step, not an
+      # independently-designed scan - see that repo's Build_Stage job. submodules: recursive
+      # because the fs scan's own trivyignores reference a file inside one.
+      - name: Checkout ballerina-vscode @ ${{ matrix.branch }}
+        uses: actions/checkout@v4
+        with:
+          repository: ballerina-platform/ballerina-vscode
+          ref: ${{ matrix.branch }}
+          submodules: recursive
+
+      # Real dependency install (not just a lockfile parse) - matches ballerina-vscode's own
+      # .github/actions/build composite action's rush/pnpm setup step, pinned to the same action
+      # SHA they use. This populates node_modules for real, which is what makes the fs scan
+      # below meaningful (see combine.py's process_vscode_report for why we don't instead scan
+      # the packaged .vsix - webpack bundling destroys per-dependency version identity).
+      - name: Setup Rush
+        uses: gigara/setup-rush@7ba3446572d15f5eacc85de383ad9679dfb7223c # v1.2.0
+        with:
+          pnpm: 10.11.0
+          node: 22.x
+          rush-install: true
+          cache-rush: false
+          cache-pnpm: false
+          set-env: false
+
+      - name: Install trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: /tmp/trivy-cache
+          key: trivy-db-${{ github.run_id }}
+          # Best-effort - see the matching comment in the distribution-scan job.
+
+      - name: Ensure trivy DB is present and fresh
+        run: |
+          trivy image --download-db-only --cache-dir /tmp/trivy-cache
+
+      - name: Scan (same scan-ref/skip-dirs/ignore-unfixed/trivyignores as upstream's fs step -
+          minus exit-code/table-format, since this pipeline reports findings rather than
+          failing a build on them)
+        run: |
+          set -euo pipefail
+          touch /tmp/vscode-trivyignore
+          cat .trivyignore >> /tmp/vscode-trivyignore
+          if [ -f submodules/wso2-vscode-extensions/.trivyignore ]; then
+            cat submodules/wso2-vscode-extensions/.trivyignore >> /tmp/vscode-trivyignore
+          fi
+
+          trivy fs \
+            --format json \
+            --output "${{ github.workspace }}/vscode-fs-report.json" \
+            --scanners vuln \
+            --cache-dir /tmp/trivy-cache \
+            --skip-db-update \
+            --timeout 10m \
+            --ignore-unfixed \
+            --ignorefile /tmp/vscode-trivyignore \
+            --skip-dirs 'common/temp,submodules,packages/ballerina-language-server/**/src/test/resources,packages/ballerina-language-server/**/src/test/data,packages/ballerina-language-server/**/build/resources/test' \
+            "${{ github.workspace }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vscode-fs-${{ matrix.branch }}
+          path: vscode-fs-report.json
+          retention-days: 14
+
+  vscode-ls-scan:
+    name: Scan ballerina-vscode language server (sbom, ${{ matrix.branch }})
+    needs: [generate-matrix, warm-trivy-db]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.generate-matrix.outputs.vscode_matrix) }}
+    defaults:
+      run:
+        working-directory: packages/ballerina-language-server
+    steps:
+      # Mirrors ballerina-vscode's OWN schedule.yml `ls-trivy` job exactly - a CycloneDX SBOM
+      # scan of the Java language server bundled into the extension. Nightly-only upstream (not
+      # part of their shared reusable-build.yml), so it's not exercised by their release path -
+      # adopting it here anyway, per the "adopt all the scans" decision, rather than only the
+      # one that happens to run on release.
+      - name: Checkout ballerina-vscode @ ${{ matrix.branch }}
+        uses: actions/checkout@v4
+        with:
+          repository: ballerina-platform/ballerina-vscode
+          ref: ${{ matrix.branch }}
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21.0.3"
+
+      - name: Generate SBOM
+        env:
+          packageUser: ${{ github.actor }}
+          packagePAT: ${{ secrets.GITHUB_TOKEN }}
+        run: ./gradlew cyclonedxBom
+
+      - name: Install trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: /tmp/trivy-cache
+          key: trivy-db-${{ github.run_id }}
+
+      - name: Ensure trivy DB is present and fresh
+        run: |
+          trivy image --download-db-only --cache-dir /tmp/trivy-cache
+
+      - name: Scan the SBOM (same as upstream's ls-trivy step, minus exit-code/table-format)
+        run: |
+          trivy sbom \
+            --format json \
+            --output "${{ github.workspace }}/vscode-ls-report.json" \
+            --cache-dir /tmp/trivy-cache \
+            --skip-db-update \
+            --timeout 10m \
+            --ignorefile .trivyignore \
+            build/sbom.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vscode-ls-${{ matrix.branch }}
+          path: vscode-ls-report.json
+          retention-days: 14
+
   combine:
     name: Combine results + sync issues
-    needs: [generate-matrix, distribution-scan, central-scan]
+    needs: [generate-matrix, distribution-scan, central-scan, vscode-fs-scan, vscode-ls-scan]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout this repo (for pipeline scripts)
@@ -219,10 +379,21 @@ jobs:
           pattern: "central-*"
           path: artifacts/central
 
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "vscode-fs-*"
+          path: artifacts/vscode-fs
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "vscode-ls-*"
+          path: artifacts/vscode-ls
+
       - name: Combine per-line reports into combined.json
         run: |
           set -euo pipefail
           LINES=$(echo '${{ needs.generate-matrix.outputs.lines }}' | jq -r '.[]')
+          VSCODE_BRANCHES=$(echo '${{ needs.generate-matrix.outputs.vscode_branches }}' | jq -r '.[]')
 
           DIST_ARGS=()
           CENTRAL_ARGS=()
@@ -237,8 +408,20 @@ jobs:
             fi
           done
 
+          VSCODE_ARGS=()
+          for branch in $VSCODE_BRANCHES; do
+            FS_REPORT="artifacts/vscode-fs/vscode-fs-${branch}/vscode-fs-report.json"
+            LS_REPORT="artifacts/vscode-ls/vscode-ls-${branch}/vscode-ls-report.json"
+            if [ -f "$FS_REPORT" ]; then
+              VSCODE_ARGS+=(--vscode-report "${branch}=${FS_REPORT}")
+            fi
+            if [ -f "$LS_REPORT" ]; then
+              VSCODE_ARGS+=(--vscode-report "${branch}=${LS_REPORT}")
+            fi
+          done
+
           python3 .github/vuln-scan/scripts/combine.py \
-            "${DIST_ARGS[@]}" "${CENTRAL_ARGS[@]}" \
+            "${DIST_ARGS[@]}" "${CENTRAL_ARGS[@]}" "${VSCODE_ARGS[@]}" \
             --out combined.json
 
       - name: Sync findings to tracking issues

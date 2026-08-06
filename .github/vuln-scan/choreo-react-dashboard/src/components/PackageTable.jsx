@@ -6,7 +6,8 @@ const SEVERITY_ORDER = {CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, UNKNOWN: 4};
 const SEVERITY_RANK = ["critical", "high", "medium", "low"];
 
 function packageDisplayName(pkg) {
-  return pkg.package_name === "ballerina-lang" ? "ballerina-lang" : `${pkg.package_org}/${pkg.package_name}`;
+  // No org (ballerina-lang, ballerina-vscode) -> name alone; otherwise org/name.
+  return pkg.package_org ? `${pkg.package_org}/${pkg.package_name}` : pkg.package_name;
 }
 
 function worstSeverity(counts) {
@@ -155,9 +156,10 @@ function PackageNode({pkg, isLast, forceExpanded, term}) {
   );
 }
 
-export default function PackageTable({byPackage}) {
+export default function PackageTable({byPackage, heading = "Packages"}) {
   const [filter, setFilter] = useState("");
   const term = filter.trim().toLowerCase();
+  const headingLower = heading.toLowerCase();
 
   const rows = useMemo(() => {
     const filtered = term ? byPackage.filter((p) => packageMatches(term, p)) : byPackage;
@@ -174,22 +176,22 @@ export default function PackageTable({byPackage}) {
   return (
     <section className="tree-section">
       <div className="tree-section-head">
-        <h2>Packages</h2>
+        <h2>{heading}</h2>
         <span className="tree-count">{rows.length}</span>
       </div>
       <input
         type="text"
-        placeholder="Filter by package, version, CVE, or jar…"
+        placeholder="Filter by name, version, CVE, or jar…"
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
         className="filter-input"
       />
       {rows.length === 0 ? (
-        <p className="empty-note">No packages match &ldquo;{filter}&rdquo;. Try a package name, CVE ID, or jar filename.</p>
+        <p className="empty-note">No {headingLower} match &ldquo;{filter}&rdquo;. Try a name, CVE ID, or jar filename.</p>
       ) : (
         <div className="tree" role="table">
           <div className="tree-header" role="row">
-            <div className="tree-cell tree-cell-name">Package</div>
+            <div className="tree-cell tree-cell-name">{heading.replace(/s$/, "")}</div>
             <div className="tree-cell tree-cell-detail">Severity</div>
             <div className="tree-cell tree-cell-issue">Issue</div>
           </div>

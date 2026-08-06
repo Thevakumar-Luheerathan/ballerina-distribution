@@ -10,16 +10,26 @@ public type IssueRef record {|
 |};
 
 public type Finding record {|
-    string ballerina_version;
-    string 'source; // "distribution" | "central" - NEVER merge across these when aggregating
+    // Absent for "vscode-extension" findings - that source has no Ballerina version concept at
+    // all (it's scanned by branch, see plugin_branch below), so this can't be required for
+    // every finding the way it used to be when only distribution/central sources existed.
+    string? ballerina_version;
+    string 'source; // "distribution" | "central" | "vscode-extension" - NEVER merge across these when aggregating
     string? package_org;
-    string package_name; // always populated: "ballerina-lang" for distribution, real name for central
+    string package_name; // always populated: "ballerina-lang"/"ballerina-vscode" for those sources, real name for central
     string? package_version;
-    // Raw underlying dependency coordinate trivy reports (e.g. "io.netty:netty-codec"),
-    // independent of which Ballerina package wraps it. Version-independent, so it's the only
-    // reliable way to check "is this library used by anything on Central at all" - needed by
-    // findPendingDistributionFixes to avoid falsely claiming a lang-only/tooling dependency
-    // (e.g. commons-beanutils) is "already fixed on Central" when it was never published there.
+    // Only populated for source "vscode-extension": the ballerina-vscode branch this was
+    // scanned from (e.g. "main"), configurable per .github/vuln-scan/vscode-targets.json.
+    // Plays the same "which specific build variant" role package_version plays for central
+    // packages - kept as a separate field rather than overloading package_version because a
+    // branch name isn't a version and conflating them would be misleading.
+    string? plugin_branch = ();
+    // Raw underlying dependency coordinate trivy reports (e.g. "io.netty:netty-codec",
+    // "axios"), independent of which Ballerina package/plugin wraps it. Version-independent, so
+    // it's the only reliable way to check "is this library used by anything on Central at all" -
+    // needed by findPendingDistributionFixes to avoid falsely claiming a lang-only/tooling
+    // dependency (e.g. commons-beanutils) is "already fixed on Central" when it was never
+    // published there.
     string library_name;
     string jar;
     string cve;
@@ -38,7 +48,8 @@ public type Finding record {|
 |};
 
 public type ScanStatus record {|
-    string ballerina_version;
+    string? ballerina_version;
+    string? plugin_branch = (); // populated instead of ballerina_version for "vscode-extension"
     string 'source;
     boolean ok;
     string? 'error;
@@ -80,13 +91,18 @@ public type VersionSourceSummary record {|
 |};
 
 public type VersionGroup record {|
-    string label; // e.g. "2.16.6 (2201.12.x, 2201.13.x)" for a central package, or "2201.12.x" for ballerina-lang
-    string[] ballerina_versions;
-    string? package_version; // null for ballerina-lang
+    string label; // e.g. "2.16.6 (2201.12.x, 2201.13.x)" for a central package, "2201.12.x" for
+                  // ballerina-lang, or a branch name (e.g. "main") for ballerina-vscode
+    string[] ballerina_versions; // empty for ballerina-vscode - it has no Ballerina version concept
+    string? package_version; // null for ballerina-lang and ballerina-vscode
     SeverityCounts counts;
     Finding[] findings; // ONLY the findings belonging to THIS version - never merged across versions
 |};
 
+// Reused as-is for the "Plugins" view (see summarizeByPlugin) - a plugin (e.g. ballerina-vscode)
+// is structurally identical to a package: one row/issue, sub-grouped by build variant (a branch
+// instead of a package version), CVEs nested under that. summarizeByPackage and summarizeByPlugin
+// partition report.findings by source so a finding is never double-counted into both views.
 public type PackageSummary record {|
     string? package_org;
     string package_name;
