@@ -1,7 +1,6 @@
 import React, {useCallback, useEffect, useState} from "react";
 import "./App.css";
 import {fetchSummary, triggerRefresh} from "./api";
-import ScanLanes from "./components/ScanLanes";
 import PackageTable from "./components/PackageTable";
 import ThemeToggle from "./components/ThemeToggle";
 
@@ -22,6 +21,7 @@ function App() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState("packages");
 
   const load = useCallback(async () => {
     try {
@@ -99,9 +99,33 @@ function App() {
             </div>
           )}
 
-          <ScanLanes byVersionAndSource={data.byVersionAndSource} />
-          <PackageTable byPackage={data.byPackage} />
-          <PackageTable byPackage={data.byPlugin} heading="Plugins" />
+          <section className="findings">
+            <div className="findings-tabs" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === "packages"}
+                className={`findings-tab${activeTab === "packages" ? " active" : ""}`}
+                onClick={() => setActiveTab("packages")}
+              >
+                Packages <span className="findings-tab-count">{data.byPackage.length}</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === "plugins"}
+                className={`findings-tab${activeTab === "plugins" ? " active" : ""}`}
+                onClick={() => setActiveTab("plugins")}
+              >
+                Plugins <span className="findings-tab-count">{data.byPlugin.length}</span>
+              </button>
+            </div>
+            {activeTab === "packages" ? (
+              <PackageTable byPackage={data.byPackage} heading="Packages" />
+            ) : (
+              <PackageTable byPackage={data.byPlugin} heading="Plugins" />
+            )}
+          </section>
         </>
       )}
     </div>

@@ -175,10 +175,6 @@ export default function PackageTable({byPackage, heading = "Packages"}) {
 
   return (
     <section className="tree-section">
-      <div className="tree-section-head">
-        <h2>{heading}</h2>
-        <span className="tree-count">{rows.length}</span>
-      </div>
       <input
         type="text"
         placeholder="Filter by name, version, CVE, or jar…"
